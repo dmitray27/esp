@@ -742,12 +742,7 @@ static void ws_handle_frame(httpd_req_t *req, char *payload)
   
     wifi_link_broadcast(from, broadcast_text);
 
-    if (xQueueSend(s_tx_queue, &msg, pdMS_TO_TICKS(100)) != pdPASS) {
-        free(msg);
-        ESP_LOGW(TAG, "TX queue full, WS message dropped");
-        ws_notify(fd, "Очередь передачи занята, сообщение не отправлено");
-        return;
-    }
+    
 
     // Рассылаем всем, включая отправителя: для него это подтверждение,
     // что сообщение принято в очередь на передачу. Если кадр содержал id,

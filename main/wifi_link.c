@@ -390,10 +390,10 @@ bool wifi_link_message_fits(const char *from, const char *id, const char *text)
     return len <= WS_MAX_FRAME_LEN;
 }
 
-static bool air_message_fits(const char *from, const char *text)  
-{  
-    size_t len = strlen(from) + 2 + strlen(text);   // "<имя>: <текст>"  
-    return len <= (size_t)(AFSK_MAX_BLOCKS * MAX_BLOCK_LEN);  
+static bool air_message_fits(const char *from, const char *text)
+{
+    size_t len = strlen(from) + 2 + strlen(text);   // "<имя>: <текст>"
+    return len <= (size_t)(AFSK_MAX_BLOCKS * MAX_BLOCK_LEN);
 }
 
 static void ws_send_to_all(const char *payload, size_t payload_len)
@@ -607,12 +607,12 @@ static esp_err_t send_post_handler(httpd_req_t *req)
         goto cleanup;
     }
 
-  size_t air_len = strlen(from) + 2 + strlen(text);   // "<имя>: <текст>"  
-    char *msg = malloc(air_len + 1);  
-    if (!msg) {  
-        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Out of memory");  
-        goto cleanup;  
-    }  
+    size_t air_len = strlen(from) + 2 + strlen(text);   // "<имя>: <текст>"
+    char *msg = malloc(air_len + 1);
+    if (!msg) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Out of memory");
+        goto cleanup;
+    }
     snprintf(msg, air_len + 1, "%s: %s", from, text);
 
     // В чат сообщение попадает только после того, как встало в очередь
@@ -718,52 +718,39 @@ static void ws_handle_frame(httpd_req_t *req, char *payload)
         strlcpy(from, "Unknown", sizeof(from));
     }
 
-    // broadcast_text уже содержит "<id>:" (если был), считаем итоговый кадр
-    // broadcast-кадр (from:id:text) проверяем для WebSocket-рассылки — как было  
-    if (!wifi_link_message_fits(from, NULL, broadcast_text)) {  
-        ws_notify(fd, "Сообщение слишком длинное для передачи");  
-        return;  
-    }  
-
-if (!name_is_valid(from)) {  
-        strlcpy(from, "Unknown", sizeof(from));  
-    }                                    
-    if (!air_message_fits(from, text)) {  
-        ws_notify(fd, "Сообщение слишком длинное для передачи");  
-        return;  
-    }  
-  
-    // broadcast_text уже содержит "<id>:" ...   // ← строка 715, как было  
+    // broadcast_text уже содержит "<id>:" (если был) — это кадр WebSocket-рассылки
     if (!wifi_link_message_fits(from, NULL, broadcast_text)) {
-  
-    if (!s_tx_queue) {  
-        ws_notify(fd, "Передатчик недоступен");  
-        return;  
-    }  
-  
-    // Строка, которая реально уйдёт в эфир: "<имя>: <текст>"  
-    size_t air_len = strlen(from) + 2 + strlen(text);   // 2 = ": "  
-    char *msg = malloc(air_len + 1);  
-    if (!msg) {  
-        ws_notify(fd, "Недостаточно памяти");  
-        return;  
-    }  
-    snprintf(msg, air_len + 1, "%s: %s", from, text);  
-  
-    if (xQueueSend(s_tx_queue, &msg, pdMS_TO_TICKS(100)) != pdPASS) {  
-        free(msg);  
-        ESP_LOGW(TAG, "TX queue full, WS message dropped");  
-        ws_notify(fd, "Очередь передачи занята, сообщение не отправлено");  
-        return;  
-    }  
-  
-    wifi_link_broadcast(from, broadcast_text);
+        ws_notify(fd, "Сообщение слишком длинное для передачи");
+        return;
+    }
+    // В эфир уходит "<имя>: <текст>" — проверяем и его
+    if (!air_message_fits(from, text)) {
+        ws_notify(fd, "Сообщение слишком длинное для передачи");
+        return;
+    }
 
-    
+    if (!s_tx_queue) {
+        ws_notify(fd, "Передатчик недоступен");
+        return;
+    }
+
+    size_t air_len = strlen(from) + 2 + strlen(text);   // 2 = ": "
+    char *msg = malloc(air_len + 1);
+    if (!msg) {
+        ws_notify(fd, "Недостаточно памяти");
+        return;
+    }
+    snprintf(msg, air_len + 1, "%s: %s", from, text);
+
+    if (xQueueSend(s_tx_queue, &msg, pdMS_TO_TICKS(100)) != pdPASS) {
+        free(msg);
+        ESP_LOGW(TAG, "TX queue full, WS message dropped");
+        ws_notify(fd, "Очередь передачи занята, сообщение не отправлено");
+        return;
+    }
 
     // Рассылаем всем, включая отправителя: для него это подтверждение,
-    // что сообщение принято в очередь на передачу. Если кадр содержал id,
-    // broadcast_text уже в виде "<id>:<текст>".
+    // что сообщение принято в очередь на передачу.
     wifi_link_broadcast(from, broadcast_text);
 }
 
@@ -871,9 +858,9 @@ static esp_err_t start_http_server(void)
 {
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.server_port = 80;
-    config.keep_alive_enable   = true;  
-    config.keep_alive_idle     = 3;   // сек тишины до первой probe  
-    config.keep_alive_interval = 2;   // интервал между probe  
+    config.keep_alive_enable   = true;
+    config.keep_alive_idle     = 3;   // сек тишины до первой probe
+    config.keep_alive_interval = 2;   // интервал между probe
     config.keep_alive_count    = 2;   // probe до признания мёртвым (~6 с)
     config.core_id = 0;
     config.max_open_sockets = 4;
@@ -916,9 +903,9 @@ static esp_err_t start_ws_server(void)
 {
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.server_port = 81;
-    config.keep_alive_enable   = true;  
-    config.keep_alive_idle     = 3;  
-    config.keep_alive_interval = 2;  
+    config.keep_alive_enable   = true;
+    config.keep_alive_idle     = 3;
+    config.keep_alive_interval = 2;
     config.keep_alive_count    = 2;
     config.ctrl_port = 32769;
     config.core_id = 0;

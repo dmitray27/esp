@@ -601,6 +601,10 @@ static esp_err_t send_post_handler(httpd_req_t *req)
         httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Message too long");
         goto cleanup;
     }
+    if (!air_message_fits(from, text)) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Message too long");
+        goto cleanup;
+    }
 
     if (!s_tx_queue) {
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "No TX queue");

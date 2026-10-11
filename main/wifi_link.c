@@ -601,8 +601,8 @@ static esp_err_t send_post_handler(httpd_req_t *req)
         goto cleanup;
     }
 
-  size_t air_len = strlen(from) + 2 + strlen(text);  
-    char *msg = (char *)malloc(air_len + 1);  
+  size_t air_len = strlen(from) + 2 + strlen(text);   // "<имя>: <текст>"  
+    char *msg = malloc(air_len + 1);  
     if (!msg) {  
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Out of memory");  
         goto cleanup;  
@@ -713,23 +713,34 @@ static void ws_handle_frame(httpd_req_t *req, char *payload)
     }
 
     // broadcast_text уже содержит "<id>:" (если был), считаем итоговый кадр
-    if (!wifi_link_message_fits(from, NULL, broadcast_text)) {
-        ws_notify(fd, "Сообщение слишком длинное для передачи");
-        return;
-    }
-
-    if (!s_tx_queue) {
-        ws_notify(fd, "Передатчик недоступен");
-        return;
-    }
-
-  size_t air_len = strlen(from) + 2 + strlen(text);   // "from: text"  
-    char *msg = (char *)malloc(air_len + 1);  
+    // broadcast-кадр (from:id:text) проверяем для WebSocket-рассылки — как было  
+    if (!wifi_link_message_fits(from, NULL, broadcast_text)) {  
+        ws_notify(fd, "Сообщение слишком длинное для передачи");  
+        return;  
+    }  
+  
+    if (!s_tx_queue) {  
+        ws_notify(fd, "Передатчик недоступен");  
+        return;  
+    }  
+  
+    // Строка, которая реально уйдёт в эфир: "<имя>: <текст>"  
+    size_t air_len = strlen(from) + 2 + strlen(text);   // 2 = ": "  
+    char *msg = malloc(air_len + 1);  
     if (!msg) {  
         ws_notify(fd, "Недостаточно памяти");  
         return;  
     }  
-    snprintf(msg, air_len + 1, "%s: %s", from, text);
+    snprintf(msg, air_len + 1, "%s: %s", from, text);  
+  
+    if (xQueueSend(s_tx_queue, &msg, pdMS_TO_TICKS(100)) != pdPASS) {  
+        free(msg);  
+        ESP_LOGW(TAG, "TX queue full, WS message dropped");  
+        ws_notify(fd, "Очередь передачи занята, сообщение не отправлено");  
+        return;  
+    }  
+  
+    wifi_link_broadcast(from, broadcast_text);
 
     if (xQueueSend(s_tx_queue, &msg, pdMS_TO_TICKS(100)) != pdPASS) {
         free(msg);

@@ -49,11 +49,11 @@ uint32_t afsk_serialize_block_ring(const uint8_t *data, size_t len,
 
     for (size_t i = 0; i < len; i++) {
         uint8_t byte = data[i];
-        push_tx_bit(&ring, 0);  // START
+        push_tx_bit(&ring, 0); // START
         for (int b = 0; b < 8; b++) {
             push_tx_bit(&ring, (byte >> b) & 0x01);
         }
-        push_tx_bit(&ring, 1);  // STOP
+        push_tx_bit(&ring, 1); // STOP
     }
 
     uint8_t crc = afsk_crc8(data, len);

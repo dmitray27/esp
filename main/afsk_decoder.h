@@ -3,10 +3,10 @@
 #include <stdbool.h>
 #include "afsk_common.h"
 
-#define MAX_MESSAGE_LEN     256
+#define MAX_MESSAGE_LEN 256
 
 /* Matched-filter length: the I/Q products are integrated over one bit. */
-#define MF_TAPS             (SAMPLE_RATE / BAUD_RATE)
+#define MF_TAPS (SAMPLE_RATE / BAUD_RATE)
 
 typedef struct {
     int samples_per_bit;
@@ -48,13 +48,13 @@ typedef struct {
      * estimate for each tone. mf_hist keeps one bit of history as groups of
      * four (mark I, mark Q, space I, space Q), so the running sums update in
      * O(1) per sample. */
-    uint32_t phase_mark, phase_space;   /* NCO phase accumulators   */
-    uint32_t inc_mark, inc_space;       /* NCO phase increments     */
-    int   mf_idx;                       /* oldest slot in mf_hist   */
-    float mf_hist[MF_TAPS][4];          /* one bit of I/Q products  */
-    float mf_sum[4];                    /* running sums of mf_hist  */
-    float mI, mQ;                       /* integrated mark I/Q      */
-    float sI, sQ;                       /* integrated space I/Q     */
+    uint32_t phase_mark, phase_space; /* NCO phase accumulators   */
+    uint32_t inc_mark, inc_space;     /* NCO phase increments     */
+    int mf_idx;                       /* oldest slot in mf_hist   */
+    float mf_hist[MF_TAPS][4];        /* one bit of I/Q products  */
+    float mf_sum[4];                  /* running sums of mf_hist  */
+    float mI, mQ;                     /* integrated mark I/Q      */
+    float sI, sQ;                     /* integrated space I/Q     */
 
     /* Digital PLL for bit-clock recovery. The clock accumulator wraps once
      * per bit; the data bit is sampled at mid-bit, and every mark<->space
@@ -62,7 +62,7 @@ typedef struct {
      * the RX sample rate drifts relative to the TX bit rate. */
     uint32_t pll;
     uint32_t pll_step;
-    uint32_t sample_point;   /* clock phase at which the bit is sampled */
+    uint32_t sample_point; /* clock phase at which the bit is sampled */
     bool prev_sign;
     bool have_prev_sign;
 

@@ -24,24 +24,24 @@ static const char *TAG = "MAIN";
 /* ---------------- TX (core 0) ---------------- */
 /* MAX_BLOCK_LEN, BLOCK_GAP_MS and the derived block timings live in
  * afsk_common.h: TX, RX and the timeouts have to agree on them. */
-#define BUF_SIZE        8192
+#define BUF_SIZE 8192
 
 /* ---------------- RX (core 1) ---------------- */
 /* I2S pins come from Kconfig ("AFSK Pin Configuration") so the same sources
  * build for WROOM and for S3 by swapping sdkconfig.defaults. */
-#define I2S_BCK_PIN     ((gpio_num_t)CONFIG_PIN_I2S_BCK)
-#define I2S_WS_PIN      ((gpio_num_t)CONFIG_PIN_I2S_WS)
-#define I2S_DATA_PIN    ((gpio_num_t)CONFIG_PIN_I2S_DATA)
+#define I2S_BCK_PIN ((gpio_num_t)CONFIG_PIN_I2S_BCK)
+#define I2S_WS_PIN ((gpio_num_t)CONFIG_PIN_I2S_WS)
+#define I2S_DATA_PIN ((gpio_num_t)CONFIG_PIN_I2S_DATA)
 #define SAMPLES_PER_BIT (SAMPLE_RATE / BAUD_RATE)
 
 /* I2S slot layout used below: 24 data bits in a 32-bit slot, both slots
  * enabled. The sample extraction (>> RX_SAMPLE_SHIFT, step of
  * RX_SLOTS_PER_FRAME) is derived from these constants, so the slot config and
  * the unpacking cannot drift apart. */
-#define RX_DATA_BITS        24
-#define RX_SLOT_BITS        32
-#define RX_SAMPLE_SHIFT     (RX_SLOT_BITS - RX_DATA_BITS)
-#define RX_SLOTS_PER_FRAME  2
+#define RX_DATA_BITS 24
+#define RX_SLOT_BITS 32
+#define RX_SAMPLE_SHIFT (RX_SLOT_BITS - RX_DATA_BITS)
+#define RX_SLOTS_PER_FRAME 2
 
 #define RX_ASSEMBLY_MAX 8192
 #define MESSAGE_IDLE_MS (BLOCK_TIME_MS + BLOCK_TIME_MS / 2)
@@ -66,12 +66,11 @@ static uint8_t s_slot_len[RX_MAX_BLOCKS];
 static bool s_slot_filled[RX_MAX_BLOCKS];
 static uint8_t s_cur_seq = 0;
 static uint8_t s_cur_total = 0;
-static uint32_t s_blocks_received = 0;   /* уникальных блоков текущего seq */
-static uint32_t s_assembly_dropped = 0;  /* кадров с CRC FAIL за время сборки */
+static uint32_t s_blocks_received = 0;  /* уникальных блоков текущего seq */
+static uint32_t s_assembly_dropped = 0; /* кадров с CRC FAIL за время сборки */
 static bool s_assembling = false;
 
-static void rx_assembly_reset(void)
-{
+static void rx_assembly_reset(void) {
     memset(s_slot_filled, 0, sizeof(s_slot_filled));
     s_blocks_received = 0;
     s_assembly_dropped = 0;
@@ -79,8 +78,7 @@ static void rx_assembly_reset(void)
     s_assembling = false;
 }
 
-static void rx_assembly_start(uint8_t seq, uint8_t total)
-{
+static void rx_assembly_start(uint8_t seq, uint8_t total) {
     rx_assembly_reset();
     s_cur_seq = seq;
     s_cur_total = total;
@@ -89,8 +87,7 @@ static void rx_assembly_start(uint8_t seq, uint8_t total)
 
 /* Завершает сборку текущего seq: полное сообщение уходит в чат, неполное —
    только служебным уведомлением. Тело в UART не печатается (см. AGENTS.md). */
-static void rx_assembly_finish(void)
-{
+static void rx_assembly_finish(void) {
     if (!s_assembling) {
         return;
     }
@@ -158,14 +155,13 @@ static void rx_assembly_finish(void)
     rx_assembly_reset();
 }
 
-static void tx_send_message(const char *text, size_t len)
-{
+static void tx_send_message(const char *text, size_t len) {
     if (len == 0) {
         return;
     }
 
     int blocks = 0;
-    for (int s = 0; s < (int)len; ) {
+    for (int s = 0; s < (int)len;) {
         s += afsk_utf8_block_len(text, s, (int)len, MAX_BLOCK_LEN);
         blocks++;
     }
@@ -178,7 +174,7 @@ static void tx_send_message(const char *text, size_t len)
     /* CRC32 всего сообщения печатается и здесь, и приёмником в FULL MESSAGE:
        тест сверяет содержимое, не печатая тело из rx_task */
     static uint8_t tx_seq = 0;
-    afsk_block_hdr_t hdr = { .seq = tx_seq++, .block_no = 0, .total = (uint8_t)blocks };
+    afsk_block_hdr_t hdr = {.seq = tx_seq++, .block_no = 0, .total = (uint8_t)blocks};
     uint32_t crc = esp_rom_crc32_le(0, (const uint8_t *)text, len);
     ESP_LOGI(TAG, "Message: %d bytes, Blocks: %d, CRC32: %08" PRIX32 ", Seq: %u",
              (int)len, blocks, crc, hdr.seq);
@@ -221,8 +217,7 @@ static void tx_send_message(const char *text, size_t len)
     ESP_LOGI(TAG, "All blocks sent");
 }
 
-static void tx_task(void *pvParameters)
-{
+static void tx_task(void *pvParameters) {
     QueueHandle_t tx_queue = (QueueHandle_t)pvParameters;
     ESP_LOGI(TAG, "TX task started on core %d", xPortGetCoreID());
 
@@ -235,8 +230,7 @@ static void tx_task(void *pvParameters)
     }
 }
 
-static void console_task(void *pvParameters)
-{
+static void console_task(void *pvParameters) {
     QueueHandle_t tx_queue = (QueueHandle_t)pvParameters;
     ESP_LOGI(TAG, "Console task started on core %d", xPortGetCoreID());
 
@@ -309,8 +303,7 @@ static void console_task(void *pvParameters)
     }
 }
 
-static void rx_task(void *pvParameters)
-{
+static void rx_task(void *pvParameters) {
     (void)pvParameters;
     ESP_LOGI(TAG, "RX task started on core %d", xPortGetCoreID());
 
@@ -408,7 +401,8 @@ static void rx_task(void *pvParameters)
 
             if (afsk_decoder_process_sample(&decoder, sample, &message)) {
                 packets_received++;
-                if (!message.crc_valid) crc_errors++;
+                if (!message.crc_valid)
+                    crc_errors++;
 
                 afsk_block_hdr_t hdr;
                 const uint8_t *text = NULL;
@@ -481,8 +475,7 @@ static void rx_task(void *pvParameters)
     }
 }
 
-void app_main(void)
-{
+void app_main(void) {
     ESP_LOGI(TAG, "=== AFSK Transceiver (TX core0 / RX core1) ===");
 
     esp_err_t ret = nvs_flash_init();

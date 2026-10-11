@@ -134,7 +134,7 @@ static void init_gpio(void) {
 #if TX_PTT_ENABLE
                         | (1ULL << PIN_PTT)
 #endif
-                        ,
+            ,
         .mode = GPIO_MODE_OUTPUT,
         .pull_up_en = GPIO_PULLUP_DISABLE,
         .pull_down_en = GPIO_PULLDOWN_DISABLE,

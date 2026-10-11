@@ -27,30 +27,30 @@
 #define WIFI_SSID_PREFIX "AFSK-TRX-"
 // Пароль точки доступа задаётся в menuconfig (AFSK Wi-Fi Access Point),
 // чтобы он не лежал в исходниках и не был одинаковым на всех платах
-#define WIFI_PASS       CONFIG_AFSK_AP_PASSWORD
-#define WIFI_CHANNEL    1
-#define WIFI_MAX_STA    4
+#define WIFI_PASS CONFIG_AFSK_AP_PASSWORD
+#define WIFI_CHANNEL 1
+#define WIFI_MAX_STA 4
 #define WIFI_INACTIVE_TIME_S 30
 
-#define WIFI_AP_IP      "192.168.4.1"
+#define WIFI_AP_IP "192.168.4.1"
 
-#define TX_QUEUE_LEN    4
-#define POST_BUF_SIZE   1024
-#define WS_MAX_CLIENTS  4
-#define WS_NAME_MAX     32
+#define TX_QUEUE_LEN 4
+#define POST_BUF_SIZE 1024
+#define WS_MAX_CLIENTS 4
+#define WS_NAME_MAX 32
 
 // Кадр длиннее WS_MAX_FRAME_LEN вычитывается и игнорируется: на 300 бод
 // столько данных всё равно уходит в эфир десятки секунд.
 // Кадр длиннее WS_HARD_MAX_LEN вычитывать не пытаемся — рвём сессию,
 // иначе придётся выделять произвольный объём памяти по запросу клиента.
 #define WS_MAX_FRAME_LEN 1024
-#define WS_HARD_MAX_LEN  8192
+#define WS_HARD_MAX_LEN 8192
 
 // Последние сообщения хранятся на плате: клиент, у которого соединение
 // оборвалось (например при засыпании телефона), получает пропущенное
 // сразу после рукопожатия
 // Слот вмещает любой кадр, который проходит WS_MAX_FRAME_LEN, плюс имя
-#define HISTORY_SIZE    20
+#define HISTORY_SIZE 20
 #define HISTORY_MAX_LEN (WS_MAX_FRAME_LEN + WS_NAME_MAX + 8)
 
 static const char *TAG = "WIFI_LINK";
@@ -82,8 +82,7 @@ typedef struct {
 // Индекс — просто слот, ищем по fd
 static ws_client_t s_ws_clients[WS_MAX_CLIENTS];
 
-static void clients_init(void)
-{
+static void clients_init(void) {
     for (int i = 0; i < WS_MAX_CLIENTS; i++) {
         s_ws_clients[i].fd = WS_FD_NONE;
         s_ws_clients[i].name[0] = '\0';
@@ -91,8 +90,7 @@ static void clients_init(void)
     }
 }
 
-QueueHandle_t wifi_link_get_tx_queue(void)
-{
+QueueHandle_t wifi_link_get_tx_queue(void) {
     return s_tx_queue;
 }
 
@@ -102,8 +100,7 @@ QueueHandle_t wifi_link_get_tx_queue(void)
 
 // Слот клиента по fd; при отсутствии занимает свободный.
 // Вызывать под s_ws_mutex
-static ws_client_t *client_slot_locked(int fd)
-{
+static ws_client_t *client_slot_locked(int fd) {
     for (int i = 0; i < WS_MAX_CLIENTS; i++) {
         if (s_ws_clients[i].fd == fd) {
             return &s_ws_clients[i];
@@ -122,8 +119,7 @@ static ws_client_t *client_slot_locked(int fd)
 
 // Слот заводится сразу после рукопожатия: троттлинг работает по слоту,
 // поэтому клиент, не присылающий setName:, иначе не был бы ограничен
-static void client_register(int fd)
-{
+static void client_register(int fd) {
     xSemaphoreTake(s_ws_mutex, portMAX_DELAY);
     if (!client_slot_locked(fd)) {
         ESP_LOGW(TAG, "No free client slot for fd %d", fd);
@@ -131,8 +127,7 @@ static void client_register(int fd)
     xSemaphoreGive(s_ws_mutex);
 }
 
-static void client_set_name(int fd, const char *name)
-{
+static void client_set_name(int fd, const char *name) {
     xSemaphoreTake(s_ws_mutex, portMAX_DELAY);
 
     ws_client_t *slot = client_slot_locked(fd);
@@ -146,8 +141,7 @@ static void client_set_name(int fd, const char *name)
 }
 
 // Копирует имя клиента в out. Возвращает false, если setName: не приходил
-static bool client_get_name(int fd, char *out, size_t out_size)
-{
+static bool client_get_name(int fd, char *out, size_t out_size) {
     bool found = false;
 
     xSemaphoreTake(s_ws_mutex, portMAX_DELAY);
@@ -163,8 +157,7 @@ static bool client_get_name(int fd, char *out, size_t out_size)
     return found;
 }
 
-static void client_forget(int fd)
-{
+static void client_forget(int fd) {
     xSemaphoreTake(s_ws_mutex, portMAX_DELAY);
     for (int i = 0; i < WS_MAX_CLIENTS; i++) {
         if (s_ws_clients[i].fd == fd) {
@@ -178,8 +171,7 @@ static void client_forget(int fd)
 
 #define WS_MIN_MSG_INTERVAL_MS 100
 
-static bool client_check_rate(int fd, uint32_t now_ms)
-{
+static bool client_check_rate(int fd, uint32_t now_ms) {
     bool allowed = true;
 
     xSemaphoreTake(s_ws_mutex, portMAX_DELAY);
@@ -214,8 +206,7 @@ typedef struct {
 // Выполняется в задаче httpd: только так запись в сокет не пересекается
 // с ответами самого сервера. Вызывать httpd_ws_send_frame_async напрямую
 // из чужой задачи (например из rx_task) нельзя — кадры перемешаются
-static void ws_send_work(void *arg)
-{
+static void ws_send_work(void *arg) {
     ws_send_ctx_t *ctx = (ws_send_ctx_t *)arg;
 
     httpd_ws_frame_t ws_pkt = {0};
@@ -232,8 +223,7 @@ static void ws_send_work(void *arg)
     free(ctx);
 }
 
-static void ws_queue_text(int fd, const char *payload, size_t len)
-{
+static void ws_queue_text(int fd, const char *payload, size_t len) {
     if (!s_ws_server || len == 0) {
         return;
     }
@@ -264,8 +254,7 @@ static void ws_queue_text(int fd, const char *payload, size_t len)
 
 // Кадры истории отличаются префиксом "hist:": приложение показывает их
 // в чате, но не проигрывает по ним звук и не показывает уведомление
-static void history_send_to(int fd)
-{
+static void history_send_to(int fd) {
     // Статический: буфер больше килобайта не для стека httpd, доступ под s_ws_mutex
     static char frame[HISTORY_MAX_LEN + 8];
 
@@ -291,8 +280,7 @@ static void history_send_to(int fd)
     xSemaphoreGive(s_ws_mutex);
 }
 
-static void history_store(const char *payload)
-{
+static void history_store(const char *payload) {
     xSemaphoreTake(s_ws_mutex, portMAX_DELAY);
 
     char *slot = s_history[s_history_count % HISTORY_SIZE];
@@ -307,9 +295,9 @@ static void history_store(const char *payload)
         if (start > 0) {
             unsigned char lead = (unsigned char)slot[start - 1];
             if (lead & 0x80) {
-                size_t need = ((lead & 0xE0) == 0xC0) ? 2 :
-                              ((lead & 0xF0) == 0xE0) ? 3 :
-                              ((lead & 0xF8) == 0xF0) ? 4 : 1;
+                size_t need = ((lead & 0xE0) == 0xC0) ? 2 : ((lead & 0xF0) == 0xE0) ? 3
+                                                        : ((lead & 0xF8) == 0xF0)   ? 4
+                                                                                    : 1;
                 if (start - 1 + need > end) {
                     slot[start - 1] = '\0';
                 }
@@ -322,8 +310,7 @@ static void history_store(const char *payload)
 }
 
 // Служебное уведомление одному клиенту: приложение показывает его как SnackBar
-static void ws_notify(int fd, const char *text)
-{
+static void ws_notify(int fd, const char *text) {
     char payload[128];
     int len = snprintf(payload, sizeof(payload), "System:%s", text);
     if (len < 0) {
@@ -337,8 +324,7 @@ static void ws_notify(int fd, const char *text)
 
 static void ws_send_to_all(const char *payload, size_t payload_len);
 
-void wifi_link_broadcast(const char *from, const char *text)
-{
+void wifi_link_broadcast(const char *from, const char *text) {
     if (!s_ws_server || !from || !text) {
         return;
     }
@@ -364,8 +350,7 @@ void wifi_link_broadcast(const char *from, const char *text)
     free(payload);
 }
 
-void wifi_link_notify_all(const char *text)
-{
+void wifi_link_notify_all(const char *text) {
     if (!s_ws_server || !text || text[0] == '\0') {
         return;
     }
@@ -380,8 +365,7 @@ void wifi_link_notify_all(const char *text)
     ws_send_to_all(payload, (size_t)len);
 }
 
-bool wifi_link_message_fits(const char *from, const char *id, const char *text)
-{
+bool wifi_link_message_fits(const char *from, const char *id, const char *text) {
     /* Тот же лимит считает клиент (messageFitsFrame в chat_protocol.dart) */
     size_t len = strlen(from) + 1 + strlen(text);
     if (id && id[0] != '\0') {
@@ -390,14 +374,12 @@ bool wifi_link_message_fits(const char *from, const char *id, const char *text)
     return len <= WS_MAX_FRAME_LEN;
 }
 
-static bool air_message_fits(const char *from, const char *text)
-{
-    size_t len = strlen(from) + 2 + strlen(text);   // "<имя>: <текст>"
+static bool air_message_fits(const char *from, const char *text) {
+    size_t len = strlen(from) + 2 + strlen(text); // "<имя>: <текст>"
     return len <= (size_t)(AFSK_MAX_BLOCKS * MAX_BLOCK_LEN);
 }
 
-static void ws_send_to_all(const char *payload, size_t payload_len)
-{
+static void ws_send_to_all(const char *payload, size_t payload_len) {
     size_t client_count = WS_MAX_CLIENTS;
     int client_fds[WS_MAX_CLIENTS];
     if (httpd_get_client_list(s_ws_server, &client_count, client_fds) == ESP_OK) {
@@ -420,8 +402,7 @@ static void ws_send_to_all(const char *payload, size_t payload_len)
 
 /* id клиента — только латиница/цифры (та же проверка в flutter/lib/chat_protocol.dart);
    иначе сегмент — начало legacy-текста с двоеточием внутри */
-static bool looks_like_id(const char *s, size_t len)
-{
+static bool looks_like_id(const char *s, size_t len) {
     if (len == 0 || len > 32) {
         return false;
     }
@@ -435,24 +416,24 @@ static bool looks_like_id(const char *s, size_t len)
 
 // Имя без ':' (разделитель кадра) и не "System": иначе клиент смог бы
 // подделать служебные уведомления
-static bool name_is_valid(const char *name)
-{
+static bool name_is_valid(const char *name) {
     if (name[0] == '\0' || strchr(name, ':') != NULL) {
         return false;
     }
     return strncmp(name, "System", 6) != 0;
 }
 
-static int hex_val(char c)
-{
-    if (c >= '0' && c <= '9') return c - '0';
-    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
-    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+static int hex_val(char c) {
+    if (c >= '0' && c <= '9')
+        return c - '0';
+    if (c >= 'A' && c <= 'F')
+        return c - 'A' + 10;
+    if (c >= 'a' && c <= 'f')
+        return c - 'a' + 10;
     return -1;
 }
 
-static void url_decode(char *out, size_t out_size, const char *in, const char *end)
-{
+static void url_decode(char *out, size_t out_size, const char *in, const char *end) {
     size_t i = 0;
     while (i < out_size - 1 && in && *in && in < end) {
         if (*in == '+') {
@@ -475,8 +456,7 @@ static void url_decode(char *out, size_t out_size, const char *in, const char *e
 
 // Ищет значение параметра key ("from=") в теле формы. Совпадение считается
 // только в начале тела или после '&', иначе "myfrom=" сойдёт за "from="
-static char *find_param(char *body, const char *key)
-{
+static char *find_param(char *body, const char *key) {
     size_t klen = strlen(key);
     for (char *p = strstr(body, key); p; p = strstr(p + 1, key)) {
         if (p == body || p[-1] == '&') {
@@ -486,8 +466,7 @@ static char *find_param(char *body, const char *key)
     return NULL;
 }
 
-static esp_err_t ping_get_handler(httpd_req_t *req)
-{
+static esp_err_t ping_get_handler(httpd_req_t *req) {
     const char *resp = "pong";
     httpd_resp_set_type(req, "text/plain");
     httpd_resp_send(req, resp, strlen(resp));
@@ -495,8 +474,7 @@ static esp_err_t ping_get_handler(httpd_req_t *req)
 }
 
 // Имя сети и адрес устройства: приложение показывает SSID, полученный отсюда
-static esp_err_t info_get_handler(httpd_req_t *req)
-{
+static esp_err_t info_get_handler(httpd_req_t *req) {
     char resp[96];
     int len = snprintf(resp, sizeof(resp), "{\"ssid\":\"%s\",\"ip\":\"%s\"}",
                        s_ssid, WIFI_AP_IP);
@@ -513,8 +491,7 @@ static esp_err_t info_get_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
-static esp_err_t send_post_handler(httpd_req_t *req)
-{
+static esp_err_t send_post_handler(httpd_req_t *req) {
     if (req->content_len == 0) {
         httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Empty body");
         return ESP_FAIL;
@@ -611,7 +588,7 @@ static esp_err_t send_post_handler(httpd_req_t *req)
         goto cleanup;
     }
 
-    size_t air_len = strlen(from) + 2 + strlen(text);   // "<имя>: <текст>"
+    size_t air_len = strlen(from) + 2 + strlen(text); // "<имя>: <текст>"
     char *msg = malloc(air_len + 1);
     if (!msg) {
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Out of memory");
@@ -652,8 +629,7 @@ cleanup:
 // WebSocket
 // ============================
 
-static void ws_handle_frame(httpd_req_t *req, char *payload)
-{
+static void ws_handle_frame(httpd_req_t *req, char *payload) {
     int fd = httpd_req_to_sockfd(req);
 
     uint32_t now_ms = (uint32_t)(esp_timer_get_time() / 1000);
@@ -738,7 +714,7 @@ static void ws_handle_frame(httpd_req_t *req, char *payload)
         return;
     }
 
-    size_t air_len = strlen(from) + 2 + strlen(text);   // 2 = ": "
+    size_t air_len = strlen(from) + 2 + strlen(text); // 2 = ": "
     char *msg = malloc(air_len + 1);
     if (!msg) {
         ws_notify(fd, "Недостаточно памяти");
@@ -758,8 +734,7 @@ static void ws_handle_frame(httpd_req_t *req, char *payload)
     wifi_link_broadcast(from, broadcast_text);
 }
 
-static esp_err_t ws_handler(httpd_req_t *req)
-{
+static esp_err_t ws_handler(httpd_req_t *req) {
     if (req->method == HTTP_GET) {
         int fd = httpd_req_to_sockfd(req);
         ESP_LOGI(TAG, "WS handshake done, fd=%d", fd);
@@ -831,8 +806,7 @@ static esp_err_t ws_handler(httpd_req_t *req)
 
 // Сокет закрывает httpd, но имя клиента нужно снять самим:
 // номера дескрипторов переиспользуются
-static void ws_close_fn(httpd_handle_t hd, int sockfd)
-{
+static void ws_close_fn(httpd_handle_t hd, int sockfd) {
     (void)hd;
     client_forget(sockfd);
     close(sockfd);
@@ -843,29 +817,27 @@ static void ws_close_fn(httpd_handle_t hd, int sockfd)
 // ============================
 
 static void wifi_event_handler(void *arg, esp_event_base_t event_base,
-                               int32_t event_id, void *event_data)
-{
+                               int32_t event_id, void *event_data) {
     if (event_base != WIFI_EVENT) {
         return;
     }
 
     if (event_id == WIFI_EVENT_AP_STACONNECTED) {
         wifi_event_ap_staconnected_t *evt = (wifi_event_ap_staconnected_t *)event_data;
-        ESP_LOGI(TAG, "Station "MACSTR" connected, AID=%d", MAC2STR(evt->mac), evt->aid);
+        ESP_LOGI(TAG, "Station " MACSTR " connected, AID=%d", MAC2STR(evt->mac), evt->aid);
     } else if (event_id == WIFI_EVENT_AP_STADISCONNECTED) {
         wifi_event_ap_stadisconnected_t *evt = (wifi_event_ap_stadisconnected_t *)event_data;
-        ESP_LOGI(TAG, "Station "MACSTR" disconnected, AID=%d", MAC2STR(evt->mac), evt->aid);
+        ESP_LOGI(TAG, "Station " MACSTR " disconnected, AID=%d", MAC2STR(evt->mac), evt->aid);
     }
 }
 
-static esp_err_t start_http_server(void)
-{
+static esp_err_t start_http_server(void) {
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.server_port = 80;
-    config.keep_alive_enable   = true;
-    config.keep_alive_idle     = 3;   // сек тишины до первой probe
-    config.keep_alive_interval = 2;   // интервал между probe
-    config.keep_alive_count    = 2;   // probe до признания мёртвым (~6 с)
+    config.keep_alive_enable = true;
+    config.keep_alive_idle = 3;     // сек тишины до первой probe
+    config.keep_alive_interval = 2; // интервал между probe
+    config.keep_alive_count = 2;    // probe до признания мёртвым (~6 с)
     config.core_id = 0;
     config.max_open_sockets = 4;
     config.max_uri_handlers = 5;
@@ -903,14 +875,13 @@ static esp_err_t start_http_server(void)
     return ESP_OK;
 }
 
-static esp_err_t start_ws_server(void)
-{
+static esp_err_t start_ws_server(void) {
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.server_port = 81;
-    config.keep_alive_enable   = true;
-    config.keep_alive_idle     = 3;
+    config.keep_alive_enable = true;
+    config.keep_alive_idle = 3;
     config.keep_alive_interval = 2;
-    config.keep_alive_count    = 2;
+    config.keep_alive_count = 2;
     config.ctrl_port = 32769;
     config.core_id = 0;
     config.max_open_sockets = WS_MAX_CLIENTS;
@@ -940,8 +911,7 @@ static esp_err_t start_ws_server(void)
     return ESP_OK;
 }
 
-void wifi_link_init(void)
-{
+void wifi_link_init(void) {
     s_tx_queue = xQueueCreate(TX_QUEUE_LEN, sizeof(char *));
     if (!s_tx_queue) {
         ESP_LOGE(TAG, "Failed to create TX queue");
@@ -964,9 +934,9 @@ void wifi_link_init(void)
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&cfg));
     ESP_ERROR_CHECK(esp_event_handler_instance_register(WIFI_EVENT,
-                                                         ESP_EVENT_ANY_ID,
-                                                         &wifi_event_handler,
-                                                         NULL, NULL));
+                                                        ESP_EVENT_ANY_ID,
+                                                        &wifi_event_handler,
+                                                        NULL, NULL));
 
     uint8_t mac[6] = {0};
     ESP_ERROR_CHECK(esp_read_mac(mac, ESP_MAC_WIFI_SOFTAP));

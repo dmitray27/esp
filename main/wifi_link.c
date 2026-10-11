@@ -390,6 +390,12 @@ bool wifi_link_message_fits(const char *from, const char *id, const char *text)
     return len <= WS_MAX_FRAME_LEN;
 }
 
+static bool air_message_fits(const char *from, const char *text)  
+{  
+    size_t len = strlen(from) + 2 + strlen(text);   // "<имя>: <текст>"  
+    return len <= (size_t)(AFSK_MAX_BLOCKS * MAX_BLOCK_LEN);  
+}
+
 static void ws_send_to_all(const char *payload, size_t payload_len)
 {
     size_t client_count = WS_MAX_CLIENTS;

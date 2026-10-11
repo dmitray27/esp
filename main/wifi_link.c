@@ -601,11 +601,13 @@ static esp_err_t send_post_handler(httpd_req_t *req)
         goto cleanup;
     }
 
-    char *msg = strdup(text);
-    if (!msg) {
-        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Out of memory");
-        goto cleanup;
-    }
+  size_t air_len = strlen(from) + 2 + strlen(text);  
+    char *msg = (char *)malloc(air_len + 1);  
+    if (!msg) {  
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Out of memory");  
+        goto cleanup;  
+    }  
+    snprintf(msg, air_len + 1, "%s: %s", from, text);
 
     // В чат сообщение попадает только после того, как встало в очередь
     // на передачу, иначе клиент видел бы "отправлено" для того,
@@ -721,11 +723,13 @@ static void ws_handle_frame(httpd_req_t *req, char *payload)
         return;
     }
 
-    char *msg = strdup(text);
-    if (!msg) {
-        ws_notify(fd, "Недостаточно памяти");
-        return;
-    }
+  size_t air_len = strlen(from) + 2 + strlen(text);   // "from: text"  
+    char *msg = (char *)malloc(air_len + 1);  
+    if (!msg) {  
+        ws_notify(fd, "Недостаточно памяти");  
+        return;  
+    }  
+    snprintf(msg, air_len + 1, "%s: %s", from, text);
 
     if (xQueueSend(s_tx_queue, &msg, pdMS_TO_TICKS(100)) != pdPASS) {
         free(msg);

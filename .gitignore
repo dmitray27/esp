@@ -1,13 +1,11 @@
-   # Игнорировать виртуальное окружение
-  # myenv/
-
-   # Игнорировать архив и распакованную папку
-   libev-4.33.tar.gz
-   libev-4.33/
-libev-4.33.tar.gz
-libev-4.33/
-
-
-
-tem.txt
-logs/temp_log.txt
+build/
+sdkconfig
+sdkconfig.old
+*.log
+*.bin
+*.elf
+*.map
+managed_components/
+build_*/
+sdkconfig.release
+sdkconfig.release.old

@@ -65,7 +65,7 @@ ESP32 (TX + AD9851) → рация TX → эфир → рация RX → ESP32 (
 Требуется **ESP-IDF v5.x-v6.x** (тестировалось на v6.0.1).
 
 ```bash
-cd tx_rx_mes_200b_filter_verbose_wifi
+cd 73g_tx_rx_mes_200b_filter_verbose_wifi
 . /path/to/esp-idf/export.sh
 
 # Для ESP32-WROOM:

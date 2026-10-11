@@ -724,6 +724,17 @@ static void ws_handle_frame(httpd_req_t *req, char *payload)
         ws_notify(fd, "Сообщение слишком длинное для передачи");  
         return;  
     }  
+
+if (!name_is_valid(from)) {  
+        strlcpy(from, "Unknown", sizeof(from));  
+    }                                    
+    if (!air_message_fits(from, text)) {  
+        ws_notify(fd, "Сообщение слишком длинное для передачи");  
+        return;  
+    }  
+  
+    // broadcast_text уже содержит "<id>:" ...   // ← строка 715, как было  
+    if (!wifi_link_message_fits(from, NULL, broadcast_text)) {
   
     if (!s_tx_queue) {  
         ws_notify(fd, "Передатчик недоступен");  

@@ -82,9 +82,9 @@ typedef struct {
 // Индекс — просто слот, ищем по fd
 static ws_client_t s_ws_clients[WS_MAX_CLIENTS];
 
-// POST /send общий для всех клиентов: троттлим глобально одним счётчиком,  
-// потому что радиоканал и s_tx_queue одни на всех. Доступ под s_ws_mutex.  
-static uint32_t s_last_post_ms = 0;  
+// POST /send общий для всех клиентов: троттлим глобально одним счётчиком,
+// потому что радиоканал и s_tx_queue одни на всех. Доступ под s_ws_mutex.
+static uint32_t s_last_post_ms = 0;
 
 static void clients_init(void) {
     for (int i = 0; i < WS_MAX_CLIENTS; i++) {
@@ -580,22 +580,22 @@ static esp_err_t send_post_handler(httpd_req_t *req) {
         goto cleanup;
     }
 
-    uint32_t now_ms = (uint32_t)(esp_timer_get_time() / 1000);  
-    xSemaphoreTake(s_ws_mutex, portMAX_DELAY);  
-    bool allowed = (s_last_post_ms == 0) ||  
-                   (now_ms - s_last_post_ms >= WS_MIN_MSG_INTERVAL_MS);  
-    if (allowed) {  
-        s_last_post_ms = now_ms;  
-    }  
-    xSemaphoreGive(s_ws_mutex);  
-  
-    if (!allowed) {  
-        httpd_resp_set_status(req, "429 Too Many Requests");  
-        httpd_resp_set_type(req, "text/plain");  
-        httpd_resp_send(req, "Too fast", HTTPD_RESP_USE_STRLEN);  
-        result = ESP_OK;  
-        goto cleanup;  
-    }  
+    uint32_t now_ms = (uint32_t)(esp_timer_get_time() / 1000);
+    xSemaphoreTake(s_ws_mutex, portMAX_DELAY);
+    bool allowed = (s_last_post_ms == 0) ||
+                   (now_ms - s_last_post_ms >= WS_MIN_MSG_INTERVAL_MS);
+    if (allowed) {
+        s_last_post_ms = now_ms;
+    }
+    xSemaphoreGive(s_ws_mutex);
+
+    if (!allowed) {
+        httpd_resp_set_status(req, "429 Too Many Requests");
+        httpd_resp_set_type(req, "text/plain");
+        httpd_resp_send(req, "Too fast", HTTPD_RESP_USE_STRLEN);
+        result = ESP_OK;
+        goto cleanup;
+    }
 
     /* id генерируем до проверки размера: лимит считается для итогового кадра from:id:text.
        Префикс 'p' отличает id от счётчиков rx_task и клиентов: приложение

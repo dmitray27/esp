@@ -1,7 +1,7 @@
 CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_160=y
 CONFIG_COMPILER_OPTIMIZATION_PERF=y
 CONFIG_HTTPD_WS_SUPPORT=y
-CONFIG_LWIP_MAX_SOCKETS=8
+CONFIG_LWIP_MAX_SOCKETS=16
 
 # GPIO layout of the ESP32-WROOM stand (see main/Kconfig.projbuild).
 # For ESP32-S3 the same symbols are overridden in sdkconfig.defaults.esp32s3.

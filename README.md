@@ -1,9 +1,10 @@
+
 # AFSK Transceiver для ESP32
 
 Прошивка `73g_tx_rx_mes_200b_filter_verbose_wifi` — AFSK модем/трансивер на базе ESP32.
 Клиент для телефона/ПК — Flutter-приложение в `../flutter` (см. его README).
 
-Передача: AD9851 DDS (1200/2200 Гц, 200 бод).  
+Передача: AD9851 DDS (1200/2200 Гц, 200 бод).
 Приём: I2S ADC (PCM1808 или аналог) с квадратурным демодулятором, matched filter и DPLL.
 
 Поддерживаемые платы: **ESP32-WROOM** (target `esp32`) и **ESP32-S3** (target `esp32s3`).

@@ -38,6 +38,13 @@
 #define POST_BUF_SIZE 1024
 #define WS_MAX_CLIENTS 4
 #define WS_NAME_MAX 32
+#define HTTP_MAX_CLIENTS 4
+#define HTTPD_INTERNAL_SOCKETS 3
+#define NETWORK_SOCKET_RESERVE 2
+
+_Static_assert(CONFIG_LWIP_MAX_SOCKETS >=
+                   HTTP_MAX_CLIENTS + WS_MAX_CLIENTS + 2 * HTTPD_INTERNAL_SOCKETS + NETWORK_SOCKET_RESERVE,
+               "CONFIG_LWIP_MAX_SOCKETS must cover both HTTP servers, their clients, and a reserve");
 
 // Кадр длиннее WS_MAX_FRAME_LEN вычитывается и игнорируется: на 300 бод
 // столько данных всё равно уходит в эфир десятки секунд.
@@ -869,7 +876,7 @@ static esp_err_t start_http_server(void) {
     config.keep_alive_interval = 2; // интервал между probe
     config.keep_alive_count = 2;    // probe до признания мёртвым (~6 с)
     config.core_id = 0;
-    config.max_open_sockets = 4;
+    config.max_open_sockets = HTTP_MAX_CLIENTS;
     config.max_uri_handlers = 5;
     config.lru_purge_enable = true;
 

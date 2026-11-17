@@ -11,6 +11,8 @@
 #include "driver/i2s_std.h"
 #include "esp_log.h"
 #include "esp_system.h"
+#include "esp_random.h"
+#include "esp_timer.h"
 #include "esp_heap_caps.h"
 #include "esp_rom_crc.h"
 #include "nvs_flash.h"
@@ -155,6 +157,15 @@ static void rx_assembly_finish(void) {
     rx_assembly_reset();
 }
 
+/* Busy Channel Lockout: the channel counts as busy until the decoder has
+   seen BCL_HOLD_MS without a tone above the noise-adaptive threshold.
+   last_rf_signal_ms is used on purpose, not last_signal_time: the latter
+   is refreshed by the frame-finalize timeout even in silence. */
+static bool channel_busy(void) {
+    uint32_t now_ms = (uint32_t)(esp_timer_get_time() / 1000);
+    return (now_ms - decoder.last_rf_signal_ms) < BCL_HOLD_MS;
+}
+
 static void tx_send_message(const char *text, size_t len) {
     if (len == 0) {
         return;
@@ -178,6 +189,44 @@ static void tx_send_message(const char *text, size_t len) {
     uint32_t crc = esp_rom_crc32_le(0, (const uint8_t *)text, len);
     ESP_LOGI(TAG, "Message: %d bytes, Blocks: %d, CRC32: %08" PRIX32 ", Seq: %u",
              (int)len, blocks, crc, hdr.seq);
+
+    /* BCL: hold off keying PTT while the channel is busy. The start time is
+       armed once on entry, so repeated busy periods cannot extend the
+       wait forever; on timeout the message is dropped with a notice to
+       the chat clients (it was already shown there as sent). The elapsed
+       check uses subtraction so it stays correct across the 32-bit ms
+       wraparound. */
+    uint32_t bcl_start_ms = (uint32_t)(esp_timer_get_time() / 1000);
+    bool bcl_logged = false;
+    bool bcl_backoff_done = false;
+    for (;;) {
+        if (channel_busy()) {
+            if (!bcl_logged) {
+                ESP_LOGI(TAG, "BCL: channel busy, waiting");
+                bcl_logged = true;
+            }
+            if ((uint32_t)(esp_timer_get_time() / 1000) - bcl_start_ms >= BCL_TIMEOUT_MS) {
+                ESP_LOGW(TAG, "BCL: channel busy for %" PRIu32 " ms, message dropped",
+                         BCL_TIMEOUT_MS);
+                wifi_link_notify_all("Канал занят, сообщение не отправлено");
+                return;
+            }
+            vTaskDelay(pdMS_TO_TICKS(100));
+            continue;
+        }
+        if (!bcl_backoff_done) {
+            /* Random pause so several devices do not start on the same
+               free slot; the busy check repeats afterwards in case
+               someone grabbed the channel during the backoff. */
+            bcl_backoff_done = true;
+            vTaskDelay(pdMS_TO_TICKS(esp_random() % BCL_BACKOFF_MAX_MS));
+            continue;
+        }
+        break;
+    }
+    if (bcl_logged) {
+        ESP_LOGI(TAG, "BCL: channel free, transmitting");
+    }
 
     int start = 0;
     for (int i = 0; i < blocks; i++) {

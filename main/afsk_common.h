@@ -36,6 +36,22 @@ _Static_assert(MAX_BLOCK_LEN >= 4,
 
 #define BLOCK_GAP_MS 500 /* silence between blocks  */
 
+/* Busy Channel Lockout: before keying PTT the transmitter waits for the
+ * receiver to report BCL_HOLD_MS of silence. The hold has to outlast
+ * BLOCK_GAP_MS, otherwise a peer would see a gap inside our message as a
+ * free channel and start transmitting into it. */
+#ifndef BCL_HOLD_MS
+#define BCL_HOLD_MS 1000
+#endif
+#ifndef BCL_TIMEOUT_MS
+#define BCL_TIMEOUT_MS 30000
+#endif
+#ifndef BCL_BACKOFF_MAX_MS
+#define BCL_BACKOFF_MAX_MS 1500
+#endif
+_Static_assert(BCL_HOLD_MS > BLOCK_GAP_MS,
+               "BCL hold must cover the inter-block gap");
+
 /* Silence after which the receiver finalizes the frame it is assembling.
  * Shared so the inter-block pause can be checked against it (see the
  * _Static_assert in afsk_decoder.c) and so host tests can pace their

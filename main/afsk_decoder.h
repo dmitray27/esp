@@ -40,6 +40,10 @@ typedef struct {
     uint8_t rx_buffer[MAX_MESSAGE_LEN];
     uint8_t rx_index;
     uint32_t last_signal_time;
+    /* Last bit sample whose tone power crossed signal_threshold. Unlike
+       last_signal_time this is NOT refreshed by the silence timeout in
+       process_bit(), so it is the only field safe for busy-channel checks. */
+    uint32_t last_rf_signal_ms;
     afsk_decoder_config_t config;
 
     /* Quadrature (I/Q) tone correlators. A complex NCO per tone is mixed with

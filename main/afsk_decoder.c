@@ -152,6 +152,7 @@ void afsk_decoder_init(afsk_decoder_t *dec, int sample_rate) {
 
     dec->state = WAITING_FOR_PREAMBLE;
     dec->last_signal_time = esp_timer_get_time() / 1000;
+    dec->last_rf_signal_ms = dec->last_signal_time;
     dec->noise_floor = INIT_NOISE_FLOOR;
     dec->signal_threshold = INIT_NOISE_FLOOR * MIN_SIGNAL_RATIO;
     dec->level_report_time = dec->last_signal_time;
@@ -408,6 +409,7 @@ bool afsk_decoder_process_sample(afsk_decoder_t *dec,
     }
     if (max_power > dec->signal_threshold) {
         dec->last_signal_time = current_time;
+        dec->last_rf_signal_ms = current_time;
     }
 
     if (mark_env > dec->peak_mark)

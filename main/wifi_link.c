@@ -43,8 +43,8 @@
 #define NETWORK_SOCKET_RESERVE 2
 
 _Static_assert(CONFIG_LWIP_MAX_SOCKETS >=
-                   HTTP_MAX_CLIENTS + WS_MAX_CLIENTS + 2 * HTTPD_INTERNAL_SOCKETS + NETWORK_SOCKET_RESERVE,
-               "CONFIG_LWIP_MAX_SOCKETS must cover both HTTP servers, their clients, and a reserve");
+                    HTTP_MAX_CLIENTS + WS_MAX_CLIENTS + 2 * HTTPD_INTERNAL_SOCKETS + NETWORK_SOCKET_RESERVE,
+                "CONFIG_LWIP_MAX_SOCKETS must cover both HTTP servers, their clients, and a reserve");
 
 // Кадр длиннее WS_MAX_FRAME_LEN вычитывается и игнорируется: на 300 бод
 // столько данных всё равно уходит в эфир десятки секунд.
@@ -92,6 +92,18 @@ static ws_client_t s_ws_clients[WS_MAX_CLIENTS];
 // POST /send общий для всех клиентов: троттлим глобально одним счётчиком,
 // потому что радиоканал и s_tx_queue одни на всех. Доступ под s_ws_mutex.
 static uint32_t s_last_post_ms = 0;
+
+static void tx_queue_item_free(tx_queue_item_t *item) {
+    if (!item) {
+        return;
+    }
+    free(item->from);
+    free(item->text);
+    free(item->broadcast_text);
+    item->from = NULL;
+    item->text = NULL;
+    item->broadcast_text = NULL;
+}
 
 static void clients_init(void) {
     for (int i = 0; i < WS_MAX_CLIENTS; i++) {
@@ -497,7 +509,7 @@ static esp_err_t ping_get_handler(httpd_req_t *req) {
 static esp_err_t info_get_handler(httpd_req_t *req) {
     char resp[96];
     int len = snprintf(resp, sizeof(resp), "{\"ssid\":\"%s\",\"ip\":\"%s\"}",
-                       s_ssid, WIFI_AP_IP);
+                        s_ssid, WIFI_AP_IP);
     if (len < 0) {
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Format error");
         return ESP_FAIL;
@@ -633,11 +645,22 @@ static esp_err_t send_post_handler(httpd_req_t *req) {
     }
     snprintf(msg, air_len + 1, "%s: %s", from, text);
 
+    tx_queue_item_t queued = {0};
+    queued.from = strdup(from);
+    queued.text = msg;
+    queued.broadcast_text = strdup(id_text);
+    if (!queued.from || !queued.broadcast_text) {
+        tx_queue_item_free(&queued);
+        free(msg);
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Out of memory");
+        goto cleanup;
+    }
+
     // В чат сообщение попадает только после того, как встало в очередь
     // на передачу, иначе клиент видел бы "отправлено" для того,
     // что в эфир не ушло
-    if (xQueueSend(s_tx_queue, &msg, pdMS_TO_TICKS(100)) != pdPASS) {
-        free(msg);
+    if (xQueueSend(s_tx_queue, &queued, pdMS_TO_TICKS(100)) != pdPASS) {
+        tx_queue_item_free(&queued);
         ESP_LOGW(TAG, "TX queue full, POST message dropped");
         httpd_resp_set_status(req, "503 Service Unavailable");
         httpd_resp_set_type(req, "text/plain");
@@ -647,8 +670,13 @@ static esp_err_t send_post_handler(httpd_req_t *req) {
     }
 
     snprintf(id_text, POST_BUF_SIZE + 32, "%s:%s", id_buf, text);
-
-    wifi_link_broadcast(from, id_text);
+    queued.broadcast_text = strdup(id_text);
+    if (!queued.broadcast_text) {
+        tx_queue_item_free(&queued);
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Out of memory");
+        goto cleanup;
+    }
+    // Broadcast is emitted at TX start, not here.
 
     const char *resp = "OK";
     httpd_resp_set_type(req, "text/plain");
@@ -759,252 +787,21 @@ static void ws_handle_frame(httpd_req_t *req, char *payload) {
     }
     snprintf(msg, air_len + 1, "%s: %s", from, text);
 
-    if (xQueueSend(s_tx_queue, &msg, pdMS_TO_TICKS(100)) != pdPASS) {
+    tx_queue_item_t queued = {0};
+    queued.from = strdup(from);
+    queued.text = msg;
+    queued.broadcast_text = strdup(broadcast_text);
+    if (!queued.from || !queued.broadcast_text) {
+        tx_queue_item_free(&queued);
         free(msg);
+        ws_notify(fd, "Недостаточно памяти");
+        return;
+    }
+
+    if (xQueueSend(s_tx_queue, &queued, pdMS_TO_TICKS(100)) != pdPASS) {
+        tx_queue_item_free(&queued);
         ESP_LOGW(TAG, "TX queue full, WS message dropped");
         ws_notify(fd, "Очередь передачи занята, сообщение не отправлено");
         return;
-    }
-
-    // Рассылаем всем, включая отправителя: для него это подтверждение,
-    // что сообщение принято в очередь на передачу.
-    wifi_link_broadcast(from, broadcast_text);
-}
-
-static esp_err_t ws_handler(httpd_req_t *req) {
-    if (req->method == HTTP_GET) {
-        int fd = httpd_req_to_sockfd(req);
-        ESP_LOGI(TAG, "WS handshake done, fd=%d", fd);
-        client_register(fd);
-        history_send_to(fd);
-        return ESP_OK;
-    }
-
-    httpd_ws_frame_t ws_pkt = {0};
-    ws_pkt.type = HTTPD_WS_TYPE_TEXT;
-
-    // Первый вызов без буфера возвращает длину кадра
-    esp_err_t ret = httpd_ws_recv_frame(req, &ws_pkt, 0);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "WS frame header recv failed: %d", ret);
-        return ret;
-    }
-
-    if (ws_pkt.len == 0) {
-        return ESP_OK;
-    }
-
-    if (ws_pkt.len > WS_HARD_MAX_LEN) {
-        ESP_LOGE(TAG, "WS frame of %u bytes, closing session",
-                 (unsigned)ws_pkt.len);
-        return ESP_FAIL;
-    }
-
-    uint8_t *buf = (uint8_t *)calloc(1, ws_pkt.len + 1);
-    if (!buf) {
-        ESP_LOGE(TAG, "WS buffer alloc failed");
-        return ESP_ERR_NO_MEM;
-    }
-    ws_pkt.payload = buf;
-
-    // Кадр вычитываем целиком даже если он слишком длинный:
-    // иначе остаток тела примется за заголовок следующего кадра
-    ret = httpd_ws_recv_frame(req, &ws_pkt, ws_pkt.len);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "WS recv failed: %d", ret);
-        free(buf);
-        return ret;
-    }
-
-    if (ws_pkt.type == HTTPD_WS_TYPE_TEXT) {
-        buf[ws_pkt.len] = '\0';
-
-        if (ws_pkt.len > WS_MAX_FRAME_LEN) {
-            ESP_LOGW(TAG, "WS frame too long (%u bytes), ignored",
-                     (unsigned)ws_pkt.len);
-            ws_notify(httpd_req_to_sockfd(req), "Сообщение слишком длинное");
-        } else {
-            // Полный кадр (до 1 КБ ≈ 90 мс UART) блокирует httpd-таск и других
-            // клиентов — в тихой сборке логируем только длину и начало
-            if (AFSK_VERBOSE) {
-                ESP_LOGI(TAG, "WS text from fd %d (%u bytes): %s",
-                         httpd_req_to_sockfd(req), (unsigned)ws_pkt.len, (char *)buf);
-            } else {
-                ESP_LOGD(TAG, "WS text from fd %d (%u bytes): %.64s",
-                         httpd_req_to_sockfd(req), (unsigned)ws_pkt.len, (char *)buf);
-            }
-            ws_handle_frame(req, (char *)buf);
-        }
-    }
-
-    free(buf);
-    return ESP_OK;
-}
-
-// Сокет закрывает httpd, но имя клиента нужно снять самим:
-// номера дескрипторов переиспользуются
-static void ws_close_fn(httpd_handle_t hd, int sockfd) {
-    (void)hd;
-    client_forget(sockfd);
-    close(sockfd);
-}
-
-// ============================
-// Wi-Fi и запуск серверов
-// ============================
-
-static void wifi_event_handler(void *arg, esp_event_base_t event_base,
-                               int32_t event_id, void *event_data) {
-    if (event_base != WIFI_EVENT) {
-        return;
-    }
-
-    if (event_id == WIFI_EVENT_AP_STACONNECTED) {
-        wifi_event_ap_staconnected_t *evt = (wifi_event_ap_staconnected_t *)event_data;
-        ESP_LOGI(TAG, "Station " MACSTR " connected, AID=%d", MAC2STR(evt->mac), evt->aid);
-    } else if (event_id == WIFI_EVENT_AP_STADISCONNECTED) {
-        wifi_event_ap_stadisconnected_t *evt = (wifi_event_ap_stadisconnected_t *)event_data;
-        ESP_LOGI(TAG, "Station " MACSTR " disconnected, AID=%d", MAC2STR(evt->mac), evt->aid);
-    }
-}
-
-static esp_err_t start_http_server(void) {
-    httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-    config.server_port = 80;
-    config.keep_alive_enable = true;
-    config.keep_alive_idle = 3;     // сек тишины до первой probe
-    config.keep_alive_interval = 2; // интервал между probe
-    config.keep_alive_count = 2;    // probe до признания мёртвым (~6 с)
-    config.core_id = 0;
-    config.max_open_sockets = HTTP_MAX_CLIENTS;
-    config.max_uri_handlers = 5;
-    config.lru_purge_enable = true;
-
-    if (httpd_start(&s_http_server, &config) != ESP_OK) {
-        ESP_LOGE(TAG, "HTTP server start failed");
-        return ESP_FAIL;
-    }
-
-    httpd_uri_t ping_uri = {
-        .uri = "/ping",
-        .method = HTTP_GET,
-        .handler = ping_get_handler,
-        .user_ctx = NULL,
-    };
-    httpd_uri_t info_uri = {
-        .uri = "/info",
-        .method = HTTP_GET,
-        .handler = info_get_handler,
-        .user_ctx = NULL,
-    };
-    httpd_uri_t send_uri = {
-        .uri = "/send",
-        .method = HTTP_POST,
-        .handler = send_post_handler,
-        .user_ctx = NULL,
-    };
-
-    httpd_register_uri_handler(s_http_server, &ping_uri);
-    httpd_register_uri_handler(s_http_server, &info_uri);
-    httpd_register_uri_handler(s_http_server, &send_uri);
-
-    ESP_LOGI(TAG, "HTTP server started on port 80 (Core 0)");
-    return ESP_OK;
-}
-
-static esp_err_t start_ws_server(void) {
-    httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-    config.server_port = 81;
-    config.keep_alive_enable = true;
-    config.keep_alive_idle = 3;
-    config.keep_alive_interval = 2;
-    config.keep_alive_count = 2;
-    config.ctrl_port = 32769;
-    config.core_id = 0;
-    config.max_open_sockets = WS_MAX_CLIENTS;
-    config.max_uri_handlers = 2;
-    config.lru_purge_enable = true;
-    config.close_fn = ws_close_fn;
-
-    if (httpd_start(&s_ws_server, &config) != ESP_OK) {
-        ESP_LOGE(TAG, "WS server start failed");
-        return ESP_FAIL;
-    }
-
-    httpd_uri_t ws_uri = {
-        .uri = "/",
-        .method = HTTP_GET,
-        .handler = ws_handler,
-        .user_ctx = NULL,
-#ifdef CONFIG_HTTPD_WS_SUPPORT
-        .is_websocket = true,
-        .handle_ws_control_frames = false,
-#endif
-    };
-
-    httpd_register_uri_handler(s_ws_server, &ws_uri);
-
-    ESP_LOGI(TAG, "WS server started on port 81 (Core 0)");
-    return ESP_OK;
-}
-
-void wifi_link_init(void) {
-    s_tx_queue = xQueueCreate(TX_QUEUE_LEN, sizeof(char *));
-    if (!s_tx_queue) {
-        ESP_LOGE(TAG, "Failed to create TX queue");
-        return;
-    }
-
-    s_ws_mutex = xSemaphoreCreateMutex();
-    if (!s_ws_mutex) {
-        ESP_LOGE(TAG, "Failed to create WS mutex");
-        return;
-    }
-
-    clients_init();
-
-    ESP_ERROR_CHECK(esp_netif_init());
-    ESP_ERROR_CHECK(esp_event_loop_create_default());
-
-    esp_netif_create_default_wifi_ap();
-
-    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
-    ESP_ERROR_CHECK(esp_wifi_init(&cfg));
-    ESP_ERROR_CHECK(esp_event_handler_instance_register(WIFI_EVENT,
-                                                        ESP_EVENT_ANY_ID,
-                                                        &wifi_event_handler,
-                                                        NULL, NULL));
-
-    uint8_t mac[6] = {0};
-    ESP_ERROR_CHECK(esp_read_mac(mac, ESP_MAC_WIFI_SOFTAP));
-
-    wifi_config_t wifi_config = {0};
-    int written = snprintf(s_ssid, sizeof(s_ssid), "%s%02X%02X",
-                           WIFI_SSID_PREFIX, mac[4], mac[5]);
-    size_t ssid_len = (written < 0) ? 0 : (size_t)written;
-    if (ssid_len > sizeof(wifi_config.ap.ssid)) {
-        ssid_len = sizeof(wifi_config.ap.ssid);
-    }
-
-    memcpy(wifi_config.ap.ssid, s_ssid, ssid_len);
-    wifi_config.ap.ssid_len = ssid_len;
-    strlcpy((char *)wifi_config.ap.password, WIFI_PASS,
-            sizeof(wifi_config.ap.password));
-    wifi_config.ap.channel = WIFI_CHANNEL;
-    wifi_config.ap.max_connection = WIFI_MAX_STA;
-    wifi_config.ap.authmode = WIFI_AUTH_WPA2_PSK;
-
-    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
-    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &wifi_config));
-    ESP_ERROR_CHECK(esp_wifi_start());
-    ESP_ERROR_CHECK(esp_wifi_set_inactive_time(WIFI_IF_AP, WIFI_INACTIVE_TIME_S));
-
-    ESP_LOGI(TAG, "Wi-Fi AP started: SSID=%s, IP=" WIFI_AP_IP, s_ssid);
-
-    if (start_http_server() != ESP_OK) {
-        ESP_LOGE(TAG, "HTTP server failed to start");
-    }
-    if (start_ws_server() != ESP_OK) {
-        ESP_LOGE(TAG, "WS server failed to start");
     }
 }

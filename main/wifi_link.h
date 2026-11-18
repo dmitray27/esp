@@ -4,6 +4,20 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 
+#define WS_NAME_MAX 32
+
+/* Элемент очереди на передачу в эфир.
+   air_text — "<from>: <text>" для эфира.
+   echo_text — "<id>:<text>" для WebSocket-рассылки в момент старта
+   передачи; NULL — источник без эха (POST /send, консоль).
+   from — имя отправителя для эха.
+   Все строки выделены в куче, владение переходит к tx_task. */
+typedef struct {
+    char *air_text;
+    char *echo_text;
+    char from[WS_NAME_MAX + 1];
+} tx_queue_item_t;
+
 /* Initialize Wi-Fi AP, HTTP and WebSocket servers. */
 void wifi_link_init(void);
 

@@ -166,7 +166,9 @@ static bool channel_busy(void) {
     return (now_ms - decoder.last_rf_signal_ms) < BCL_HOLD_MS;
 }
 
-static void tx_send_message(const char *text, size_t len) {
+static void tx_send_message(const tx_queue_item_t *item) {
+    const char *text = item->air_text;
+    size_t len = strlen(text);
     if (len == 0) {
         return;
     }
@@ -228,6 +230,14 @@ static void tx_send_message(const char *text, size_t len) {
         ESP_LOGI(TAG, "BCL: channel free, transmitting");
     }
 
+    /* Эхо клиентам — при старте первого блока, а не после последнего:
+       если передача оборвётся посередине, delivered уже будет выставлен.
+       При таймауте BCL сюда не доходим: клиент получает "failed"
+       по echoTimeout и System-уведомление "Канал занят". */
+    if (item->echo_text) {
+        wifi_link_broadcast(item->from, item->echo_text);
+    }
+
     int start = 0;
     for (int i = 0; i < blocks; i++) {
         int block_len = afsk_utf8_block_len(text, start, (int)len, MAX_BLOCK_LEN);
@@ -271,10 +281,11 @@ static void tx_task(void *pvParameters) {
     ESP_LOGI(TAG, "TX task started on core %d", xPortGetCoreID());
 
     while (1) {
-        char *msg = NULL;
-        if (xQueueReceive(tx_queue, &msg, portMAX_DELAY) == pdPASS && msg) {
-            tx_send_message(msg, strlen(msg));
-            free(msg);
+        tx_queue_item_t item;
+        if (xQueueReceive(tx_queue, &item, portMAX_DELAY) == pdPASS && item.air_text) {
+            tx_send_message(&item);
+            free(item.air_text);
+            free(item.echo_text);
         }
     }
 }
@@ -320,7 +331,9 @@ static void console_task(void *pvParameters) {
 
                 char *msg = strdup(line);
                 if (msg) {
-                    if (xQueueSend(tx_queue, &msg, pdMS_TO_TICKS(100)) != pdPASS) {
+                    tx_queue_item_t item = {0};
+                    item.air_text = msg;
+                    if (xQueueSend(tx_queue, &item, pdMS_TO_TICKS(100)) != pdPASS) {
                         free(msg);
                         ESP_LOGW(TAG, "TX queue full, console message dropped");
                     } else {

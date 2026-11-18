@@ -37,7 +37,6 @@
 #define TX_QUEUE_LEN 4
 #define POST_BUF_SIZE 1024
 #define WS_MAX_CLIENTS 4
-#define WS_NAME_MAX 32
 #define HTTP_MAX_CLIENTS 4
 #define HTTPD_INTERNAL_SOCKETS 3
 #define NETWORK_SOCKET_RESERVE 2
@@ -536,9 +535,11 @@ static esp_err_t send_post_handler(httpd_req_t *req) {
     // Оба буфера в куче: стек задачи httpd всего несколько килобайт
     char *body = (char *)malloc(POST_BUF_SIZE);
     char *text = (char *)calloc(1, POST_BUF_SIZE);
-    if (!body || !text) {
+    char *id_text = (char *)malloc(POST_BUF_SIZE + 32);
+    if (!body || !text || !id_text) {
         free(body);
         free(text);
+        free(id_text);
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Out of memory");
         return ESP_FAIL;
     }
@@ -624,32 +625,20 @@ static esp_err_t send_post_handler(httpd_req_t *req) {
     }
 
     size_t air_len = strlen(from) + 2 + strlen(text); // "<имя>: <текст>"
-    char *msg = malloc(air_len + 1);
-    if (!msg) {
+    tx_queue_item_t item = {0};
+    item.air_text = malloc(air_len + 1);
+    if (!item.air_text) {
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Out of memory");
         goto cleanup;
     }
-    snprintf(msg, air_len + 1, "%s: %s", from, text);
+    snprintf(item.air_text, air_len + 1, "%s: %s", from, text);
+    strlcpy(item.from, from, sizeof(item.from));
 
-    // Формируем эхо для клиента: <id>:<text> (для POST отправляется вместе с id)
-    size_t broadcast_len = strlen(id_buf) + 1 + strlen(text);
-    char *broadcast_text = malloc(broadcast_len + 1);
-    if (!broadcast_text) {
-        free(msg);
-        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Out of memory");
-        goto cleanup;
-    }
-    snprintf(broadcast_text, broadcast_len + 1, "%s:%s", id_buf, text);
-
-    tx_queue_item_t item;
-    item.air_text = msg;
-    item.echo_text = broadcast_text;
-    snprintf(item.from, sizeof(item.from), "%s", from);
-
-    // В очередь на передачу помещаем структуру. Эхо уйдет клиенту после прохождения BCL.
+    // В чат сообщение попадает только после того, как встало в очередь
+    // на передачу, иначе клиент видел бы "отправлено" для того,
+    // что в эфир не ушло
     if (xQueueSend(s_tx_queue, &item, pdMS_TO_TICKS(100)) != pdPASS) {
-        free(msg);
-        free(broadcast_text);
+        free(item.air_text);
         ESP_LOGW(TAG, "TX queue full, POST message dropped");
         httpd_resp_set_status(req, "503 Service Unavailable");
         httpd_resp_set_type(req, "text/plain");
@@ -657,6 +646,10 @@ static esp_err_t send_post_handler(httpd_req_t *req) {
         result = ESP_OK;
         goto cleanup;
     }
+
+    snprintf(id_text, POST_BUF_SIZE + 32, "%s:%s", id_buf, text);
+
+    wifi_link_broadcast(from, id_text);
 
     const char *resp = "OK";
     httpd_resp_set_type(req, "text/plain");
@@ -666,6 +659,7 @@ static esp_err_t send_post_handler(httpd_req_t *req) {
 cleanup:
     free(body);
     free(text);
+    free(id_text);
     return result;
 }
 
@@ -759,37 +753,32 @@ static void ws_handle_frame(httpd_req_t *req, char *payload) {
     }
 
     size_t air_len = strlen(from) + 2 + strlen(text); // 2 = ": "
-    char *msg = malloc(air_len + 1);
-    if (!msg) {
+    tx_queue_item_t item = {0};
+    item.air_text = malloc(air_len + 1);
+    if (!item.air_text) {
         ws_notify(fd, "Недостаточно памяти");
         return;
     }
-    snprintf(msg, air_len + 1, "%s: %s", from, text);
+    snprintf(item.air_text, air_len + 1, "%s: %s", from, text);
+    strlcpy(item.from, from, sizeof(item.from));
 
-    size_t broadcast_len = strlen(broadcast_text);
-    char *echo_copy = malloc(broadcast_len + 1);
-    if (!echo_copy) {
-        free(msg);
+    /* broadcast_text уже содержит "<id>:<text>" — эхо уйдёт в момент
+       старта передачи из tx_task, когда BCL уже отработал. Копия
+       обязательна: payload буфер освобождается при выходе отсюда. */
+    item.echo_text = strdup(broadcast_text);
+    if (!item.echo_text) {
+        free(item.air_text);
         ws_notify(fd, "Недостаточно памяти");
         return;
     }
-    memcpy(echo_copy, broadcast_text, broadcast_len + 1);
-
-    tx_queue_item_t item;
-    item.air_text = msg;
-    item.echo_text = echo_copy;
-    snprintf(item.from, sizeof(item.from), "%s", from);
 
     if (xQueueSend(s_tx_queue, &item, pdMS_TO_TICKS(100)) != pdPASS) {
-        free(msg);
-        free(echo_copy);
+        free(item.air_text);
+        free(item.echo_text);
         ESP_LOGW(TAG, "TX queue full, WS message dropped");
         ws_notify(fd, "Очередь передачи занята, сообщение не отправлено");
         return;
     }
-
-    // Эхо больше не рассылается здесь немедленно. 
-    // Оно будет отправлено в момент реального старта передачи (после прохождения BCL).
 }
 
 static esp_err_t ws_handler(httpd_req_t *req) {

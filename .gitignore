@@ -8,5 +8,6 @@ sdkconfig.old
 managed_components/
 build_*/
 sdkconfig.release
+sdkconfig.release.*
 sdkconfig.release.old
 .idea/

@@ -45,7 +45,7 @@ _Static_assert(CONFIG_LWIP_MAX_SOCKETS >=
                    HTTP_MAX_CLIENTS + WS_MAX_CLIENTS + 2 * HTTPD_INTERNAL_SOCKETS + NETWORK_SOCKET_RESERVE,
                "CONFIG_LWIP_MAX_SOCKETS must cover both HTTP servers, their clients, and a reserve");
 
-// Кадр длиннее WS_MAX_FRAME_LEN вычитывается и игнорируется: на 300 бод
+// Кадр длиннее WS_MAX_FRAME_LEN вычитывается и игнорируется: на 200 бод
 // столько данных всё равно уходит в эфир десятки секунд.
 // Кадр длиннее WS_HARD_MAX_LEN вычитывать не пытаемся — рвём сессию,
 // иначе придётся выделять произвольный объём памяти по запросу клиента.

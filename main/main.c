@@ -493,7 +493,7 @@ static void rx_task(void *pvParameters) {
                            packets_received, crc_errors, decoder.frames_aborted);
                 }
                 if (!message.crc_valid) {
-                    printf("[RX] CRC FAIL: expected 0x%02X, got 0x%02X\n",
+                    printf("[RX] CRC FAIL: expected 0x%04X, got 0x%04X\n",
                            message.calculated_crc, message.received_crc);
                 } else if (!hdr_ok) {
                     printf("[RX] BAD HEADER: %d-byte frame ignored\n", message.length);

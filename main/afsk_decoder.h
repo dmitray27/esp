@@ -23,8 +23,8 @@ typedef struct {
     char text[MAX_MESSAGE_LEN];
     uint8_t length;
     bool crc_valid;
-    uint8_t received_crc;
-    uint8_t calculated_crc;
+    uint16_t received_crc;
+    uint16_t calculated_crc;
 } afsk_message_t;
 
 typedef struct {

@@ -56,12 +56,15 @@ uint32_t afsk_serialize_block_ring(const uint8_t *data, size_t len,
         push_tx_bit(&ring, 1); // STOP
     }
 
-    uint8_t crc = afsk_crc8(data, len);
-    push_tx_bit(&ring, 0);
-    for (int b = 0; b < 8; b++) {
-        push_tx_bit(&ring, (crc >> b) & 0x01);
+    uint16_t crc = afsk_crc16(data, len);
+    for (int i = 0; i < AFSK_CRC_LEN; i++) { /* low byte first */
+        uint8_t byte = (uint8_t)(crc >> (8 * i));
+        push_tx_bit(&ring, 0); // START
+        for (int b = 0; b < 8; b++) {
+            push_tx_bit(&ring, (byte >> b) & 0x01);
+        }
+        push_tx_bit(&ring, 1); // STOP
     }
-    push_tx_bit(&ring, 1);
 
     for (int i = 0; i < 10; i++) {
         push_tx_bit(&ring, 1);
@@ -125,12 +128,13 @@ bool afsk_unpack_block(const uint8_t *frame, size_t frame_len,
     return true;
 }
 
-uint8_t afsk_crc8(const uint8_t *data, size_t len) {
-    uint8_t crc = 0x00;
+uint16_t afsk_crc16(const uint8_t *data, size_t len) {
+    uint16_t crc = 0xFFFF;
     while (len--) {
-        crc ^= *data++;
+        crc ^= (uint16_t)(*data++) << 8;
         for (uint8_t i = 0; i < 8; i++) {
-            crc = (crc & 0x80) ? ((crc << 1) ^ 0x07) : (crc << 1);
+            crc = (crc & 0x8000) ? (uint16_t)((crc << 1) ^ 0x1021)
+                                 : (uint16_t)(crc << 1);
         }
     }
     return crc;

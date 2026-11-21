@@ -271,7 +271,7 @@ static bool process_bit(afsk_decoder_t *dec, bool bit, float max_power,
                confident bit regardless of stop-bit polarity.
                If we have already filled the receive buffer, there is no
                room for the next byte (including the CRC), so abort. */
-            if (dec->rx_index >= MAX_MESSAGE_LEN - 1) {
+            if (dec->rx_index >= MAX_MESSAGE_LEN - AFSK_CRC_LEN) {
                 abort_frame(dec, "payload overflow");
                 return false;
             }
@@ -284,21 +284,22 @@ static bool process_bit(afsk_decoder_t *dec, bool bit, float max_power,
         }
         break;
 
-    /* Frame layout: N payload bytes followed by one CRC-8 byte, each in a
-     * UART-style slot. There is no length field and no end marker, so the
-     * frame is finalized when the next START never comes - either right
-     * here (a non-START slot with at least a payload byte and the CRC byte
-     * already decoded, rx_index > 1) or below on SIGNAL_TIMEOUT_MS of
-     * silence. The last decoded byte is then taken as the CRC. */
+    /* Frame layout: N payload bytes followed by AFSK_CRC_LEN CRC bytes, each
+     * in a UART-style slot. There is no length field and no end marker, so
+     * the frame is finalized when the next START never comes - either right
+     * here (a non-START slot with at least a payload byte and the CRC bytes
+     * already decoded, rx_index > AFSK_CRC_LEN) or below on SIGNAL_TIMEOUT_MS
+     * of silence. The last AFSK_CRC_LEN decoded bytes are then taken as the
+     * CRC (little-endian). */
     case WAITING_FOR_NEXT_BYTE:
         if (!bit && usable) {
             dec->state = RECEIVING;
             dec->bit_counter = 0;
             dec->current_byte = 0;
-        } else if (dec->rx_index > 1) {
+        } else if (dec->rx_index > AFSK_CRC_LEN) {
             need_finalize = true;
         } else {
-            /* Only the CRC byte (or nothing) was decoded: there is no
+            /* Only the CRC bytes (or nothing) were decoded: there is no
              * payload to hand over, the frame is simply gone */
             abort_frame(dec, "frame ended before any payload byte");
         }
@@ -306,10 +307,12 @@ static bool process_bit(afsk_decoder_t *dec, bool bit, float max_power,
     }
 
     if (need_finalize || (current_time - dec->last_signal_time > SIGNAL_TIMEOUT_MS)) {
-        if (dec->state != WAITING_FOR_PREAMBLE && dec->rx_index > 1) {
-            uint8_t received_crc = dec->rx_buffer[dec->rx_index - 1];
-            uint8_t calculated_crc = afsk_crc8(dec->rx_buffer, dec->rx_index - 1);
-            msg->length = dec->rx_index - 1;
+        if (dec->state != WAITING_FOR_PREAMBLE && dec->rx_index > AFSK_CRC_LEN) {
+            size_t body_len = dec->rx_index - AFSK_CRC_LEN;
+            uint16_t received_crc = (uint16_t)dec->rx_buffer[body_len] |
+                                    ((uint16_t)dec->rx_buffer[body_len + 1] << 8);
+            uint16_t calculated_crc = afsk_crc16(dec->rx_buffer, body_len);
+            msg->length = body_len;
             memcpy(msg->text, dec->rx_buffer, msg->length);
             msg->text[msg->length] = '\0';
             msg->received_crc = received_crc;

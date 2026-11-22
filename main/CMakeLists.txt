@@ -5,6 +5,10 @@ idf_component_register(
         "afsk_protocol.c"
         "afsk_decoder.c"
         "wifi_link.c"
+        "wifi_clients.c"
+        "wifi_history.c"
+        "wifi_ws.c"
+        "wifi_http.c"
     INCLUDE_DIRS
         "."
     REQUIRES

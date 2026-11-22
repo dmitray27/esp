@@ -4,7 +4,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 
-#define WS_NAME_MAX 32
+#include "wifi_common.h"
 
 /* Элемент очереди на передачу в эфир.
    air_text — "<from>: <text>" для эфира.

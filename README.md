@@ -128,16 +128,15 @@ cp build_release_esp32/merged-binary.bin merge_bin/esp32/merged-binary.bin
 # ESP32-S3, release-профиль
 idf.py -B build_release_s3 -DIDF_TARGET=esp32s3 -DSDKCONFIG=sdkconfig.release.s3 \
     -DSDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.defaults.esp32s3;sdkconfig.defaults.release" build merge-bin
-cp build_release_s3/merged-binary.bin merge_bin/esps3/merged-binary.bin
+cp build_release_s3/merged-binary.bin merge_bin/esp32s3/merged-binary.bin
 ```
 
-Готовые образы лежат в `merge_bin/esp32/` и `merge_bin/esps3/` (в репозиторий
-не коммитятся — `*.bin` в `.gitignore`). Проверка чипа в образе:
+Готовые образы лежат в `merge_bin/esp32/` и `merge_bin/esp32s3/` (в репозиторий
+не коммитятся — `*.bin` в `.gitignore`). Проверка, под какой чип собран образ (таргет записывается при сборке):
 
 ```bash
-esptool.py image-info merge_bin/esp32/merged-binary.bin   # у merged-образа
-# сегменты начинаются с 0x1000, поэтому image-info с offset 0 падает —
-# это нормально, проверь bootloader/app по отдельности или по flash_args.
+python3 -c "import json;print(json.load(open('build_release_esp32/project_description.json'))['target'])"   # esp32
+python3 -c "import json;print(json.load(open('build_release_s3/project_description.json'))['target'])"      # esp32s3
 ```
 
 Для verbose-профиля — просто `idf.py build merge-bin`, файл будет в `build/merged-binary.bin`.

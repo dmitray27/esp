@@ -390,7 +390,9 @@ bool afsk_decoder_process_sample(afsk_decoder_t *dec,
      * matched filter has not settled yet, and no frame decodes at all. */
     bool cur_sign = demod > 0.0f;
     if (signal_present && dec->have_prev_sign && cur_sign != dec->prev_sign) {
-        dec->pll = (uint32_t)((float)(int32_t)dec->pll * PLL_INERTIA);
+        /* float -> int32 -> uint32: converting a negative float straight to
+         * uint32_t is undefined behaviour in C. */
+        dec->pll = (uint32_t)(int32_t)((float)(int32_t)dec->pll * PLL_INERTIA);
     }
     dec->prev_sign = cur_sign;
     dec->have_prev_sign = true;

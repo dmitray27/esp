@@ -97,6 +97,9 @@ static esp_err_t info_get_handler(httpd_req_t *req) {
     return ESP_OK;
 }
 
+/* Сколько таймаутов подряд терпим при чтении тела POST. */
+#define POST_RECV_MAX_TIMEOUTS 5
+
 static esp_err_t send_post_handler(httpd_req_t *req) {
     if (req->content_len == 0) {
         httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Empty body");
@@ -131,18 +134,32 @@ static esp_err_t send_post_handler(httpd_req_t *req) {
         return ESP_FAIL;
     }
 
+    // Лимит повторов при таймауте: на краю зоны Wi-Fi клиент может замолчать,
+    // и бесконечный continue держал бы поток httpd занятым
     int total = 0;
+    int timeouts = 0;
     while (total < (int)body_len) {
         int ret = httpd_req_recv(req, body + total, body_len - total);
         if (ret == HTTPD_SOCK_ERR_TIMEOUT) {
+            if (++timeouts > POST_RECV_MAX_TIMEOUTS) {
+                break;
+            }
             continue;
         }
         if (ret <= 0) {
             break;
         }
+        timeouts = 0;  // пришли данные: клиент жив, счётчик подряд идущих таймаутов сбрасываем
         total += ret;
     }
     body[total] = '\0';
+
+    // Неполное тело не разбираем: иначе в эфир ушёл бы обрезанный текст
+    if (total != (int)body_len) {
+        ESP_LOGW(TAG, "POST body incomplete: %d of %d bytes", total, (int)body_len);
+        httpd_resp_send_err(req, HTTPD_408_REQ_TIMEOUT, "Incomplete body");
+        goto cleanup;
+    }
 
     char *p_from = find_param(body, "from=");
     if (!p_from) {
